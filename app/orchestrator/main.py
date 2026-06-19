@@ -23,6 +23,7 @@ from model.load import load_model
 from config import config
 from middleware import LangfuseTracingMiddleware
 from tracing import TracingConfig, init_tracing, flush_traces
+from guardrails import ResponseValidator
 
 logger.info("Imports loaded successfully")
 
@@ -50,17 +51,32 @@ logger.info("Tracing initialized")
 logger.info("Loading model...")
 tools = []
 
+SYSTEM_PROMPT = """You are a SponsorCX analytics assistant. You ONLY respond to questions about SponsorCX analytics.
+
+STRICT RULES:
+1. You MUST use a tool to answer questions. Do not generate answers from your training data.
+2. If you don't have a tool that directly answers the question with extremely high confidence, respond: "I don't know how to answer that question. I can only answer SponsorCX analytics questions."
+3. Your scope is limited to: sponsor analytics, customer data, revenue metrics, deal information, and activation/fulfillment metrics from SponsorCX.
+4. If a question falls outside SponsorCX analytics, reject it with: "I can only answer SponsorCX related analytics questions."
+5. Before calling any tool, verify the question is about SponsorCX analytics. If uncertain, refuse.
+6. Never make up data or use general knowledge - only respond with tool results.
+
+Remember: No tool = No answer. If you're not calling a tool, you should be refusing the question.
+"""
+
 agent = Agent(
     model=load_model(),
-    system_prompt="""You are a helpful assistant. Use tools when appropriate.
-""",
+    system_prompt=SYSTEM_PROMPT,
     tools=tools,
 )
 logger.info("Model loaded, creating agent...")
 
 config_stg = StrandsAgentConfig()
 
-agui_agent = StrandsAgent(agent=agent, name="orchestrator", description="A helpful assistant", config=config_stg)
+agui_agent = StrandsAgent(agent=agent, name="orchestrator", description="SponsorCX analytics assistant", config=config_stg)
+
+# Log that guardrails are active
+logger.info("✓ Guardrails active: tool-only responses, SponsorCX scope only")
 logger.info("Creating FastAPI app...")
 app = create_strands_app(agui_agent, path="/invocations", ping_path="/ping")
 
