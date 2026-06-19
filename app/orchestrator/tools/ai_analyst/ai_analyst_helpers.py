@@ -61,7 +61,7 @@ async def query_analyst_api(
         request_body["chatId"] = chat_id
 
     async with httpx.AsyncClient(timeout=300.0) as client:
-        response = await client.stream(
+        async with client.stream(
             "POST",
             ai_analyst_url,
             headers={
@@ -69,16 +69,15 @@ async def query_analyst_api(
                 "Authorization": f"Api-Key {ai_analyst_key}",
             },
             json=request_body,
-        )
+        ) as response:
+            if response.status_code != 200:
+                raise httpx.HTTPError(
+                    f"AI Analyst API returned {response.status_code}: {response.reason_phrase}"
+                )
 
-        if response.status_code != 200:
-            raise httpx.HTTPError(
-                f"AI Analyst API returned {response.status_code}: {response.reason_phrase}"
-            )
-
-        # Collect all bytes before closing the connection
-        body = await response.aread()
-        return body
+            # Collect all bytes before closing the connection
+            body = await response.aread()
+            return body
 
 
 def extract_user_context() -> tuple[str, str]:
