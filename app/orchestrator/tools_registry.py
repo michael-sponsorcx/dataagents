@@ -17,21 +17,7 @@ def load_tools() -> List[Any]:
     """
     tools = []
 
-    # TODO: Add tools here as you build them
-    # Example:
-    # from tools.analytics import SponsorAnalyticsTool
-    # tools.append(SponsorAnalyticsTool())
+    from tools.ai_analyst import ask_ai_analyst
+    tools.append(ask_ai_analyst)
 
     return tools
-
-
-def get_tool_descriptions() -> dict:
-    """Get descriptions of available tools for documentation.
-
-    Returns:
-        Dict mapping tool names to their descriptions.
-    """
-    return {
-        # TODO: Add tool descriptions
-        # "sponsor_analytics": "Get analytics data for sponsors",
-    }

@@ -5,11 +5,8 @@ Exports spans directly to Langfuse via OTLP, bypassing AgentCore's ADOT.
 All observability flows to Langfuse exclusively.
 """
 
-import asyncio
-import functools
 import logging
-from contextlib import contextmanager
-from typing import Optional, Any, Dict
+from typing import Optional, Any
 
 try:
     from langfuse import Langfuse, propagate_attributes
@@ -21,10 +18,14 @@ try:
     from opentelemetry import trace
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.processors.baggage.baggage_span_processor import BaggageSpanProcessor
 except ImportError:
     trace = None
     TracerProvider = None
     SimpleSpanProcessor = None
+    BatchSpanProcessor = None
+    BaggageSpanProcessor = None
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,19 @@ def init_tracing(config: TracingConfig) -> Optional[Any]:
     global _langfuse_client
     _langfuse_client = config.create_client()
 
+    # Add BaggageSpanProcessor to propagate attributes from propagate_attributes() to all spans
+    if BaggageSpanProcessor and trace:
+        try:
+            provider = trace.get_tracer_provider()
+            if isinstance(provider, TracerProvider):
+                # Check if BaggageSpanProcessor is already added
+                existing_baggage = any(isinstance(p, BaggageSpanProcessor) for p in provider.active_span_processor_list)
+                if not existing_baggage:
+                    provider.add_span_processor(BaggageSpanProcessor())
+                    logger.info("BaggageSpanProcessor added to OTEL tracer provider")
+        except Exception as e:
+            logger.warning(f"Could not add BaggageSpanProcessor: {e}")
+
     if config.enabled and _langfuse_client:
         logger.info("Langfuse tracing initialized (OTEL exports directly to Langfuse)")
     else:
@@ -81,118 +95,6 @@ def get_tracing_client() -> Optional[Langfuse]:
     """Get the global Langfuse client."""
     return _langfuse_client
 
-
-@contextmanager
-def trace_span(
-    name: str,
-    input_data: Optional[Dict[str, Any]] = None,
-    metadata: Optional[Dict[str, Any]] = None,
-):
-    """
-    Context manager for tracing a span with Langfuse.
-
-    Usage:
-        with trace_span("process_request", input_data={"user_id": "123"}):
-            # your code here
-    """
-    client = get_tracing_client()
-    if not client:
-        yield
-        return
-
-    span = client.start_observation(
-        name=name,
-        as_type="span",
-        input=input_data,
-        metadata=metadata or {},
-    )
-
-    try:
-        yield span
-    except Exception as e:
-        span.output = {"error": str(e)}
-        span.end()
-        raise
-    else:
-        span.end()
-
-
-def trace_tool_call(
-    tool_name: str,
-    input_data: Optional[Dict[str, Any]] = None,
-    metadata: Optional[Dict[str, Any]] = None,
-):
-    """
-    Decorator for tracing tool invocations.
-
-    Usage:
-        @trace_tool_call("my_tool", metadata={"version": "1.0"})
-        async def my_tool(param1, param2):
-            return result
-    """
-    def decorator(func):
-        @functools.wraps(func)
-        async def async_wrapper(*args, **kwargs):
-            client = get_tracing_client()
-            if not client:
-                return await func(*args, **kwargs)
-
-            call_input = input_data or {
-                "args": [str(arg)[:100] for arg in args],
-                "kwargs": {k: str(v)[:100] for k, v in kwargs.items()},
-            }
-
-            span = client.start_observation(
-                name=f"tool:{tool_name}",
-                as_type="tool",
-                input=call_input,
-                metadata=metadata or {},
-            )
-
-            try:
-                result = await func(*args, **kwargs)
-                span.output = {"success": True, "result_type": type(result).__name__}
-                span.end()
-                return result
-            except Exception as e:
-                span.output = {"error": str(e)}
-                span.end()
-                raise
-
-        @functools.wraps(func)
-        def sync_wrapper(*args, **kwargs):
-            client = get_tracing_client()
-            if not client:
-                return func(*args, **kwargs)
-
-            call_input = input_data or {
-                "args": [str(arg)[:100] for arg in args],
-                "kwargs": {k: str(v)[:100] for k, v in kwargs.items()},
-            }
-
-            span = client.start_observation(
-                name=f"tool:{tool_name}",
-                as_type="tool",
-                input=call_input,
-                metadata=metadata or {},
-            )
-
-            try:
-                result = func(*args, **kwargs)
-                span.output = {"success": True, "result_type": type(result).__name__}
-                span.end()
-                return result
-            except Exception as e:
-                span.output = {"error": str(e)}
-                span.end()
-                raise
-
-        if asyncio.iscoroutinefunction(func):
-            return async_wrapper
-        else:
-            return sync_wrapper
-
-    return decorator
 
 
 def flush_traces():
