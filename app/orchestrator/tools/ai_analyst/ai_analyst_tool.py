@@ -40,10 +40,14 @@ async def ask_ai_analyst(question: str, chat_id: str | None = None) -> str:
         user_id, user_email = extract_user_context()
 
         # Query the AI analyst API
-        response = await query_analyst_api(question, user_id, user_email, chat_id)
+        response_body = await query_analyst_api(question, user_id, user_email, chat_id)
+
+        # Convert bytes to async iterable of chunks
+        async def bytes_iterator():
+            yield response_body
 
         # Process the streaming response
-        collected = await process_analyst_stream(response.aiter_bytes(), question)
+        collected = await process_analyst_stream(bytes_iterator(), question)
 
         # Trace the successful call
         collected_dict = collected.to_dict()
