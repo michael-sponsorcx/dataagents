@@ -8,7 +8,7 @@ import logging
 from strands import tool
 from .ai_analyst_helpers import query_analyst_api, extract_user_context
 from .ai_analyst_stream import process_analyst_stream
-from ..ai_insights_tracing import trace_ai_analyst_call, trace_ai_analyst_error
+from ai_insights_tracing import trace_ai_analyst_call, trace_ai_analyst_error
 
 logger = logging.getLogger(__name__)
 
