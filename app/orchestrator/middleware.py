@@ -10,7 +10,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 import time
 import logging
-from tracing import get_tracing_client
+from tracing import get_tracing_client, set_session_id
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +31,17 @@ class LangfuseTracingMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         client = get_tracing_client()
-        if not client:
-            return await call_next(request)
 
         user_id = request.headers.get("X-User-ID") or request.query_params.get("user_id")
         session_id = request.headers.get("X-Session-ID") or request.query_params.get("session_id")
         request_id = request.headers.get("X-Request-ID")
+
+        # Set session context for all subsequent traces in this request
+        if session_id:
+            set_session_id(session_id)
+
+        if not client:
+            return await call_next(request)
 
         span_name = f"{request.method} {request.url.path}"
         span_input = {
@@ -52,6 +57,12 @@ class LangfuseTracingMiddleware(BaseHTTPMiddleware):
             metadata["session_id"] = session_id
         if request_id:
             metadata["request_id"] = request_id
+
+        # Use client.trace() to set session context for this span and all nested spans
+        if session_id:
+            trace_ctx = client.trace(session_id=session_id, name=span_name)
+        else:
+            trace_ctx = None
 
         span = client.start_observation(
             name=span_name,
@@ -69,6 +80,8 @@ class LangfuseTracingMiddleware(BaseHTTPMiddleware):
                 "duration_ms": int(duration * 1000),
             }
             span.end()
+            if trace_ctx:
+                trace_ctx.end()
             return response
         except Exception as e:
             duration = time.time() - start_time
@@ -77,4 +90,6 @@ class LangfuseTracingMiddleware(BaseHTTPMiddleware):
                 "duration_ms": int(duration * 1000),
             }
             span.end()
+            if trace_ctx:
+                trace_ctx.end()
             raise

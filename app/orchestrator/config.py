@@ -1,4 +1,5 @@
 import os
+import base64
 from typing import Optional
 from aws_secrets import secrets_manager
 
@@ -53,6 +54,14 @@ class Config:
     @property
     def ai_insights_api_key(self) -> Optional[str]:
         return self._get("AI_INSIGHTS_API_KEY", f"{self._environment}/ai-insights")
+
+    def get_otel_headers(self) -> str:
+        """Generate OTEL authentication header for Langfuse OTLP endpoint."""
+        if not self.langfuse_public_key or not self.langfuse_secret_key:
+            return ""
+        creds = f"{self.langfuse_public_key}:{self.langfuse_secret_key}"
+        encoded = base64.b64encode(creds.encode()).decode()
+        return f"Authorization=Basic {encoded}"
 
 
 config = Config()

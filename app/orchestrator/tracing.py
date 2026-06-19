@@ -1,8 +1,8 @@
 """
 Langfuse tracing instrumentation for the orchestrator agent.
 
-Wires Langfuse into the existing ADOT (AWS Distro for OpenTelemetry) TracerProvider
-injected by AgentCore, so both ADOT and Langfuse see all spans.
+Exports spans directly to Langfuse via OTLP, bypassing AgentCore's ADOT.
+All observability flows to Langfuse exclusively.
 """
 
 import asyncio
@@ -12,9 +12,10 @@ from contextlib import contextmanager
 from typing import Optional, Any, Dict
 
 try:
-    from langfuse import Langfuse
+    from langfuse import Langfuse, propagate_attributes
 except ImportError:
     Langfuse = None
+    propagate_attributes = None
 
 try:
     from opentelemetry import trace
@@ -62,23 +63,12 @@ _langfuse_client: Optional[Langfuse] = None
 
 
 def init_tracing(config: TracingConfig) -> Optional[Any]:
-    """Initialize global Langfuse client and wire to ADOT TracerProvider. Call this once at app startup."""
+    """Initialize global Langfuse client. Spans export via OTLP directly to Langfuse."""
     global _langfuse_client
     _langfuse_client = config.create_client()
 
     if config.enabled and _langfuse_client:
-        # Wire Langfuse into the existing ADOT TracerProvider if available
-        if trace:
-            try:
-                provider = trace.get_tracer_provider()
-                # For langfuse 4.9.1+, configure OTEL export on the client itself
-                # The client acts as an OTLP backend that receives spans
-                logger.info("Langfuse tracing initialized and connected to ADOT TracerProvider")
-            except Exception as e:
-                logger.warning(f"Could not connect Langfuse to ADOT TracerProvider: {e}")
-                logger.info("Langfuse tracing initialized (using SDK traces only)")
-        else:
-            logger.info("Langfuse tracing initialized (OTEL not available, using SDK traces only)")
+        logger.info("Langfuse tracing initialized (OTEL exports directly to Langfuse)")
     else:
         if not Langfuse:
             logger.warning("Langfuse SDK not installed. Run: pip install langfuse")

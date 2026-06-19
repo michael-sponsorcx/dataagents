@@ -23,7 +23,8 @@ from model.load import load_model
 from config import config
 from middleware import LangfuseTracingMiddleware
 from tracing import TracingConfig, init_tracing, flush_traces
-from guardrails import ResponseValidator
+from prompts import SYSTEM_PROMPT
+from tools_registry import load_tools
 
 logger.info("Imports loaded successfully")
 
@@ -34,6 +35,12 @@ os.environ.setdefault("LANGFUSE_SECRET_KEY", config.langfuse_secret_key or "")
 os.environ.setdefault("LANGFUSE_HOST", config.langfuse_host)
 os.environ.setdefault("AI_INSIGHTS_API_URL", config.ai_insights_api_url or "")
 os.environ.setdefault("AI_INSIGHTS_API_KEY", config.ai_insights_api_key or "")
+
+# Configure OTEL to export directly to Langfuse (bypass ADOT)
+if config.langfuse_public_key and config.langfuse_secret_key:
+    os.environ.setdefault("OTEL_EXPORTER_OTLP_ENDPOINT", f"{config.langfuse_host}/api/public/otel")
+    os.environ.setdefault("OTEL_EXPORTER_OTLP_HEADERS", config.get_otel_headers())
+os.environ.setdefault("DISABLE_ADOT_OBSERVABILITY", "true")
 logger.info("Configuration loaded")
 
 # Initialize Langfuse tracing
