@@ -19,6 +19,7 @@ dependencies = [
     "strands-agents >= 1.15.0",
     "strands-agents-tools >= 0.2.14",
     "uvicorn >= 0.34.3",
+    "psycopg[binary,pool] >= 3.2",
 ]
 
 [tool.hatch.build.targets.wheel]

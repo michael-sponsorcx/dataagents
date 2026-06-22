@@ -20,4 +20,7 @@ def load_tools() -> List[Any]:
     from tools.ai_analyst import ask_ai_analyst
     tools.append(ask_ai_analyst)
 
+    from tools.session_lookup import look_up_session_history
+    tools.append(look_up_session_history)
+
     return tools

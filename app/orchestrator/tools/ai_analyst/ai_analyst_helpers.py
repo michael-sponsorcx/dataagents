@@ -3,10 +3,12 @@
 import logging
 from typing import Optional, Dict, Any
 import httpx
+import os
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from config import config
+from request_context import get_request_context
 
 logger = logging.getLogger(__name__)
 
@@ -60,14 +62,16 @@ async def query_analyst_api(
     if chat_id:
         request_body["chatId"] = chat_id
 
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Api-Key {ai_analyst_key}",
+    }
+
     async with httpx.AsyncClient(timeout=300.0) as client:
         async with client.stream(
             "POST",
             ai_analyst_url,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Api-Key {ai_analyst_key}",
-            },
+            headers=headers,
             json=request_body,
         ) as response:
             if response.status_code != 200:
@@ -81,15 +85,24 @@ async def query_analyst_api(
 
 
 def extract_user_context() -> tuple[str, str]:
-    """Extract user context for security/session.
+    """Resolve (user_id, user_email) for the analyst's security context.
 
-    TODO: Wire up to extract from actual request context once middleware is complete.
-
-    Returns:
-        Tuple of (user_id, user_email)
+    Reads the per-request identity propagated from the middleware. Falls back to
+    ORCHESTRATOR_DEFAULT_USER_ID / ORCHESTRATOR_DEFAULT_USER_EMAIL env vars for local
+    development, otherwise returns empty strings — the caller then omits sessionSettings
+    rather than sending a wrong identity (which would scope the analyst to the wrong data).
     """
-    # Hardcoded for now; replace with actual context extraction
-    user_id = "2380"
-    user_email = "michael@sponsorcx.com"
+    ctx = get_request_context()
+    user_id = ctx.user_id or os.getenv("ORCHESTRATOR_DEFAULT_USER_ID", "")
+    user_email = ctx.authorized_email or os.getenv("ORCHESTRATOR_DEFAULT_USER_EMAIL", "")
+    if not user_id or not user_email:
+        logger.warning(
+            "[SESSION] No user context on request; analyst sessionSettings will be omitted"
+        )
     logger.debug(f"User context: id={user_id}, email={user_email}")
     return (user_id, user_email)
+
+
+def extract_session_id() -> Optional[str]:
+    """The current request's session id (== AG-UI thread_id), or None outside a request."""
+    return get_request_context().session_id

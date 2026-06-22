@@ -9,6 +9,7 @@ langfuse>=4.0.0
 strands-agents>=1.15.0
 strands-agents-tools>=0.2.14
 uvicorn>=0.34.3
+psycopg[binary,pool]>=3.2
 
 # Dependencies for AWS Secrets Manager integration
 boto3>=1.26.0

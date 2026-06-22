@@ -55,6 +55,12 @@ class Config:
     def ai_insights_api_key(self) -> Optional[str]:
         return self._get("AI_INSIGHTS_API_KEY", f"{self._environment}/ai-insights")
 
+    # Session storage (orchestrator conversation memory, persisted to Postgres)
+    @property
+    def session_db_url(self) -> Optional[str]:
+        """libpq connection string for the session store (e.g. postgresql://user:pw@host/db)."""
+        return self._get("SESSION_DATABASE_URL", f"{self._environment}/session-storage")
+
     def get_otel_headers(self) -> str:
         """Generate OTEL authentication header for Langfuse OTLP endpoint."""
         if not self.langfuse_public_key or not self.langfuse_secret_key:

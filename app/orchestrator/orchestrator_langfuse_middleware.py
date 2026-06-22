@@ -8,9 +8,11 @@ from typing import Callable
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
+import os
 import time
 import logging
 from tracing import get_tracing_client, flush_traces
+from request_context import set_request_context
 
 try:
     from langfuse import propagate_attributes
@@ -72,6 +74,24 @@ class LangfuseTracingMiddleware(BaseHTTPMiddleware):
             except Exception as e:
                 logger.debug(f"Could not extract context from body: {e}")
 
+        # Local-dev fallback: `agentcore dev` / direct CLI invokes carry no authenticated
+        # user, so fill identity from env vars when the request didn't supply it. In a real
+        # SCX request these are always present, so the env vars are ignored. Setting them here
+        # (not just in the analyst path) means the session provider sees the same identity.
+        if not user_id:
+            user_id = os.getenv("ORCHESTRATOR_DEFAULT_USER_ID") or None
+        if not authorized_email:
+            authorized_email = os.getenv("ORCHESTRATOR_DEFAULT_USER_EMAIL") or None
+
+        # Propagate per-request identity to the agent + tools running downstream.
+        # Starlette copies contextvars into the child task that call_next spawns,
+        # so values set here are visible inside the agent and ask_ai_analyst.
+        set_request_context(
+            session_id=session_id,
+            user_id=user_id,
+            authorized_email=authorized_email,
+        )
+
         span_name = f"{request.method} {request.url.path}"
         span_input = {
             "method": request.method,
@@ -89,7 +109,8 @@ class LangfuseTracingMiddleware(BaseHTTPMiddleware):
         if request_id:
             metadata["request_id"] = request_id
 
-        # Wrap in propagate_attributes to apply user_id and session_id to all nested spans
+        # Build the propagate_attributes context manager that stamps user_id/session_id
+        # onto the active observation and every child span created within its scope.
         ctx_manager = None
         if propagate_attributes:
             ctx_kwargs = {}
@@ -98,18 +119,32 @@ class LangfuseTracingMiddleware(BaseHTTPMiddleware):
             if session_id:
                 ctx_kwargs["session_id"] = session_id
             if ctx_kwargs:
-                logger.info(f"[SESSION] Setting propagate_attributes: {ctx_kwargs}")
                 ctx_manager = propagate_attributes(**ctx_kwargs)
-            else:
-                logger.debug(f"[SESSION] No user_id or session_id to propagate")
 
         try:
-            if ctx_manager:
-                logger.info(f"[SESSION] Using context manager for propagate_attributes")
-                with ctx_manager:
-                    return await call_next(request)
-            else:
-                logger.debug(f"[SESSION] No context manager, calling next without propagate_attributes")
+            # No tracing client: still run the request (never drop it).
+            if not client:
                 return await call_next(request)
+
+            # Open ONE root span as the active OTEL context so all nested spans
+            # (Strands LLM/tool calls) auto-nest under it. start_as_current_observation
+            # is the documented way to set the active context; start_observation does
+            # NOT, which is why user/session previously never landed on the trace.
+            # propagate_attributes must be entered INSIDE this block so the root span
+            # is the active observation when the attributes are applied.
+            with client.start_as_current_observation(
+                name=span_name,
+                as_type="span",
+                input=span_input,
+                metadata=metadata,
+            ) as root_span:
+                if ctx_manager:
+                    with ctx_manager:
+                        response = await call_next(request)
+                else:
+                    response = await call_next(request)
+                root_span.update(output={"status": response.status_code})
+
+            return response
         finally:
             flush_traces()

@@ -6,7 +6,7 @@ Minimal tool registration; logic delegated to helpers, schema, stream, and utils
 import json
 import logging
 from strands import tool
-from .ai_analyst_helpers import query_analyst_api, extract_user_context
+from .ai_analyst_helpers import query_analyst_api, extract_user_context, extract_session_id
 from .ai_analyst_stream import process_analyst_stream
 from .ai_insights_tracing import trace_ai_analyst_call, trace_ai_analyst_error
 
@@ -36,8 +36,14 @@ async def ask_ai_analyst(question: str, chat_id: str | None = None) -> str:
     logger.info(f"Calling AI analyst with question: {question[:100]}...")
 
     try:
-        # Extract user context (hardcoded for now, TODO: wire up to actual request context)
+        # Resolve caller identity from the current request.
         user_id, user_email = extract_user_context()
+
+        # Tie the analyst's own chat session to this orchestrator session so it keeps
+        # its own continuity. The model rarely supplies chat_id; default it to the
+        # request's session_id (== thread_id) so both layers share one session key.
+        if not chat_id:
+            chat_id = extract_session_id()
 
         # Query the AI analyst API
         response_body = await query_analyst_api(question, user_id, user_email, chat_id)

@@ -19,13 +19,14 @@ try:
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import SimpleSpanProcessor
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
-    from opentelemetry.processors.baggage.baggage_span_processor import BaggageSpanProcessor
+    from opentelemetry.processor.baggage import BaggageSpanProcessor, ALLOW_ALL_BAGGAGE_KEYS
 except ImportError:
     trace = None
     TracerProvider = None
     SimpleSpanProcessor = None
     BatchSpanProcessor = None
     BaggageSpanProcessor = None
+    ALLOW_ALL_BAGGAGE_KEYS = None
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,7 @@ def init_tracing(config: TracingConfig) -> Optional[Any]:
                 # Check if BaggageSpanProcessor is already added
                 existing_baggage = any(isinstance(p, BaggageSpanProcessor) for p in provider.active_span_processor_list)
                 if not existing_baggage:
-                    provider.add_span_processor(BaggageSpanProcessor())
+                    provider.add_span_processor(BaggageSpanProcessor(ALLOW_ALL_BAGGAGE_KEYS))
                     logger.info("BaggageSpanProcessor added to OTEL tracer provider")
         except Exception as e:
             logger.warning(f"Could not add BaggageSpanProcessor: {e}")

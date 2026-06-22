@@ -21,6 +21,7 @@ from orchestrator_langfuse_middleware import LangfuseTracingMiddleware
 from tracing import TracingConfig, init_tracing, flush_traces
 from prompts import SYSTEM_PROMPT
 from tools_registry import load_tools
+from session_provider import get_session_manager
 
 logger.info("Imports loaded successfully")
 
@@ -60,7 +61,7 @@ agent = Agent(
 )
 logger.info("Model loaded, creating agent...")
 
-config_stg = StrandsAgentConfig()
+config_stg = StrandsAgentConfig(session_manager_provider=get_session_manager)
 
 agent_name = "orchestrator"
 agui_agent = StrandsAgent(agent=agent, name=agent_name, description="SponsorCX analytics assistant", config=config_stg)
